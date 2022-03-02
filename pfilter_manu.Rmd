@@ -1,0 +1,649 @@
+---
+title: "Rt"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+## Stochastic model - Gillespie's algorithm
+### SEPAIR model 
+
+#### Install packages
+```{r}
+devtools::load_all()
+devtools::install()
+devtools::install_github("kimfinale/pfilterCOVID")
+```
+
+### Initial condition
+```{r}
+library(pfilterCOVID)
+# beta is updated by R0
+THETA <- list(beta = 0.3, R0 = 1.2, epsilon = 1/2.5, delta = 1/5, 
+            gamma = 1/2.5, bp = 1, ba = 1, fa = 0.3, fd = 1, I0 = 1e2, 
+            time_dep_Rt = FALSE)
+# this changes the default y0 in the pfilterCOVID package
+THETA$Y0 <- c(S = 1e7 - THETA$I0, E = 0, P = 0, A = 0, 
+              I = THETA$I0, R = 0, CE = 0, CI = 10, CR = 0)
+THETA$tend <- 200
+usethis::use_data(THETA)
+```
+
+### Run the ODE version
+```{r}
+# tstamp <- format(Sys.time(), "%Y%m%dT%H%M%S")
+library(pfilterCOVID)
+library(ggplot2)
+theme_set(theme_bw())
+params <- THETA
+tend <- params$tend
+
+params$I0 <- 100
+params$Y0 <- c(S = 1e7 - params$I0, E = 0, P = 0, A = 0, 
+              I = params$I0, R = 0, CE = 0, CI = 0, CR = 0)
+
+tstamp <- format(Sys.time(), "%Y%m%d")
+times <- seq(0, tend, by = 1) # daily output for 150 days
+library(deSolve)
+library(tidyverse)
+
+params$time_dep_Rt <- TRUE
+ode(y = params$Y0, times = times, func = ode_sepair, parms = params) %>% 
+  as.data.frame() -> out 
+
+out$daily_infected <- c(0, diff(out$CE)) 
+out$daily_symptom <- c(0, diff(out$CI)) 
+out$daily_confirmed <- c(0, diff(out$CR))
+out$daily_Rt <- sapply(0:tend, function(x) get_Rt(x))
+
+# saveRDS(out, paste0("outputs/ode_I0_100_", tstamp, ".rds"))
+
+out_long <- out %>% pivot_longer(-time) 
+out_long$name <- factor(out_long$name,
+                        levels = c("S", "E", "P", "A", "I", "R", 
+                                  "CE", "CI", "CR", "daily_infected", 
+                                  "daily_symptom", "daily_confirmed", "daily_Rt"))
+out_long %>%
+  filter(name == "daily_infected" | 
+           name == "daily_symptom" | name == "daily_confirmed") %>%
+  ggplot(aes(x = time, y = value, color = name)) +
+  geom_line(size = 1.2) +
+  labs(x='Time (day)', y = 'Number of individuals', color = "") + 
+  theme_grey(base_size = 16) 
+  # facet_wrap(vars(name), nrow = 2, scales = "free_y")
+```
+
+### Run the Gillespie's direct method 
+This is to create a stochastic data set based on the Gillespie's direct method 
+```{r}
+# library(pfilterCOVID)
+# library(tidyverse)
+set.seed(42)
+tstart <- Sys.time()
+# tstamp <- format(Sys.time(), "%Y%m%d")
+nrun <- 20
+
+res <- gillespie_run(func = gillespie_sepair, 
+                     tend = tend, 
+                     nrun = nrun, 
+                     y0 = params$Y0, 
+                     params = params, 
+                     report_dt = 1)
+Sys.time() - tstart
+
+daily_infected <- data.frame(matrix(0, nrow = tend + 1, ncol = nrun))
+daily_symptom <- data.frame(matrix(0, nrow = tend + 1, ncol = nrun))
+daily_confirmed <- data.frame(matrix(0, nrow = tend + 1, ncol = nrun))
+
+for (i in seq_len(length(res))) {
+  inf <- diff(res[[i]]$CE)
+  onset <- diff(res[[i]]$CI)
+  conf <- diff(res[[i]]$CR)
+  daily_infected[1:(length(inf)+1), i] <- c(0, inf)
+  daily_symptom[1:(length(onset)+1), i] <- c(0, onset)
+  daily_confirmed[1:(length(conf)+1), i] <- c(0, conf)
+}
+
+df <- daily_infected
+df$time <- 0:tend
+df %>% pivot_longer(cols = -time) -> df
+dfrm <- data.frame(time = 0:tend, dinf = rowMeans(daily_infected))
+
+plt <- ggplot() +
+  geom_line(data = df, aes(time, value, group = name), 
+            color = "grey80") +
+  geom_line(data = out, aes(time, daily_infected), # ODE model output
+            color = "darkred",
+            size = 1, inherit.aes = FALSE) + 
+  geom_line(data = dfrm, aes(time, dinf), # ODE model output
+            linetype = "dotted",
+            size = 1, inherit.aes = FALSE) + 
+  labs(x="Time", y="Daily infected cases", color="") + 
+  geom_segment(aes(x=c(0,0,0), xend=c(5,5,5), y=c(2000,1800,1600),
+                yend=c(2000,1800,1600)), size=c(1,1,1), 
+               color = c("grey80", "darkred", "black"),
+               linetype = c("solid","solid","dotted")) +
+  geom_text(aes(x=c(7,7,7), y=c(2000,1800,1600)), size=c(4,4,4), 
+               hjust = c(0,0,0), vjust = c(0.5,0.5,0.5), 
+               label = c("Stochastic simulations", "ODE", "Mean of the stochastic simulations"))
+# plt            
+# ggsave("plots/ODE_stoch_IO_100_infected.png", plt)
+
+stoch <- list()
+stoch$daily_confirmed <- daily_confirmed
+stoch$daily_symptom <- daily_symptom
+stoch$daily_infected <- daily_infected
+stoch$daily_Rt <- sapply(0:tend, function(x) get_Rt(x))
+
+# saveRDS(stoch, paste0("outputs/stoch_I0_100_", tstamp, ".rds"))
+```
+
+### Apply a detection rate
+This is to create a data set in which the detection rate is not 100%.
+```{r}
+rr <- nrow(stoch$daily_confirmed)
+cc <- ncol(stoch$daily_confirmed)
+detected <- data.frame(matrix(0, nrow = rr, ncol = cc))
+stoch_partial_obs <- list()
+probs <- seq(0.2, 0.8, 0.1)
+stoch_partial_obs$probs <- probs
+set.seed(42)
+for (k in 1:length(probs)) {
+  prob <- probs[k]
+  for (i in 1:rr) {
+     for (j in 1:cc){
+       size <- stoch$daily_confirmed[i, j]
+       # message(paste0("i = ", i, ", j = ", j, ", case = ", size, "\n"))
+       if (!is.na(size) & size > 0){
+         detected[i, j] <- rbinom(1, size = size, prob = prob)
+       }
+    }
+  }
+  stoch_partial_obs$daily_detected[[k]] <- detected
+}
+
+# saveRDS(stoch_partial_obs, paste0("outputs/stoch_I0_100_partial_obs_", tstamp, ".rds"))
+```
+
+## Total dataset
+The data set that contains all the necessary information: Rt trajectory, ODE
+and stochastic model result
+```{r}
+Rt_dataset <- list()
+Rt_dataset$README <- "To see if potential bias of Rt estimation based on the confirmation data set, especially in the most recent time, is reduced or eliminated when the number of cases are large"
+Rt_dataset$ode <- out
+Rt_dataset$stoch_perfect_obs <- stoch
+Rt_dataset$stoch_partial_obs <- stoch_partial_obs
+Rt_dataset$Rt <- sapply(0:tend, function(x) get_Rt(x))
+Rt_dataset$time <- out$time
+Rt_dataset$params <- params
+Rt_dataset$y0 <- params$Y0
+# saveRDS(Rt_dataset, paste0("outputs/Rt_dataset_I0=100_", tstamp, ".rds"))
+```
+
+### Plot: Rt, infection/confirmation/stoch outputs
+```{r}
+# Rt data set; Rt_dataset_I0=100_20220105.rds, Rt_dataset_I0=10_20220105.rds
+tstamp <- "20220105"
+dat <- readRDS(paste0("outputs/Rt_dataset_I0=100_", tstamp, ".rds"))
+
+library(ggplot2)
+plt <- ggplot() +
+  geom_line(aes(x=dat$time, y = dat$Rt)) +
+  labs(x="time", y=expression(R[t]))
+
+# ggsave("plots/Rt.png", plt)
+
+library(tidyverse)
+oderes <- dat$ode[, c("time", "daily_infected", "daily_confirmed")]
+oderes %>% pivot_longer(cols = -time) -> oderes
+
+stochres <- dat$stoch_perfect_obs$daily_confirmed[,1:20]
+stochres$time <- dat$time
+
+stochres %>% pivot_longer(cols = -time) -> stochres
+
+plt <- ggplot() +
+  geom_line(data = stochres, aes(time, value, group=name), color="grey50") +
+  geom_line(data = oderes, aes(time, value, color=name), size=1.2) + 
+  labs(x="time", y="", color="")
+   
+# ggsave("plots/daily_case.png", plt)
+```
+
+### Rt estimation using the particle filter 
+Particle filtering - particle_filter
+Expect errors since backward sampling is not in place
+```{r}
+# library(pfilterCOVID)
+set.seed(1)
+tstamp <- "20220105"
+I0 <- 100
+dat <- readRDS(paste0("outputs/Rt_dataset_I0=", I0, "_", tstamp, ".rds"))
+# determine the data type to model (infection vs. confirmation)
+dtype <- "confirmation"
+d <- dat$ode[, c("time", "daily_infected")]
+if (dtype == "confirmation") {
+  d <- dat$ode[, c("time", "daily_confirmed")]
+}
+
+dat$params$time_dep_Rt <- FALSE # this must be set FALSE to produce an estimate
+
+params <- dat$params
+#standard deviation of the prior distribution
+params[["betavol"]] <- 0.2 
+
+tbegin <- Sys.time()
+
+pf <- pfilter(
+  params = params,
+  y = params$Y0,
+  data = d,
+  data_type = dtype,
+  npart = 1e4,
+  tend = nrow(d),
+  dt = 0.1,
+  error_pdf = "pois",
+  systematic_resampling = FALSE,
+  backward_sampling = TRUE,
+  stoch = FALSE)
+
+Sys.time() - tbegin
+
+# Rt <- readRDS("outputs/Rt_default.rds")
+epsilon <- params[["epsilon"]]
+delta <- params[["delta"]]
+gamma <- params[["gamma"]]
+bp <- params[["bp"]] # relative infectiousness of pre-symptomatic state
+ba <- params[["ba"]] # relative infectiousness of asymptomatic state
+fa <- params[["fa"]] # fraction of asymptomatic state
+
+durP <- (1 / delta - 1 / epsilon)
+durI <- (1 / gamma)
+R0_dur <- ((1 - fa) + fa * ba) * durI + bp * durP
+
+med <- apply(pf$beta_filtered, 1, quantile, probs = c(0.5))
+# plot(dat$time + 2, dat$daily_Rt, type="l", ylim=c(0, max(upper * R0_dur)))
+plot(dat$ode$time + 2, dat$ode$daily_Rt, type="l")
+lines(med * R0_dur, lwd=2, col=3)
+```
+
+### Fitting the infection or confirmation time series from the ODE model
+This uses the extract_trace function that calls pfilter function and also executes backward sampling
+#### PF 
+```{r}
+# devtools::load_all()
+# devtools::install()
+
+library(pfilterCOVID)
+library(ggplot2)
+theme_set(theme_bw())
+
+tstamp <- "20220105"
+dat <- readRDS(paste0("outputs/Rt_dataset_I0=100_", tstamp, ".rds"))
+params <- dat$params
+params$time_dep_Rt <- FALSE
+params[["betavol"]] <- 0.2 
+
+# increase the number to improve accuracy
+nrep <- 1e2
+npart <- 1e2
+dt <- 0.2
+library(parallel)
+library(doParallel)
+
+ncores <- detectCores() 
+dtype <- "confirmation"
+# ODE with perfect observation
+d <- data.frame(date = dat$time,
+               daily_infected = round(dat$ode$daily_infected))
+if (dtype == "confirmation") {
+  d <- data.frame(date = dat$time,
+                  daily_confirmed = round(dat$ode$daily_confirmed))
+}
+
+set.seed(42)
+cl <- makeCluster(getOption("cl.cores", 2))
+doParallel::registerDoParallel(cl)
+
+pf <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %dopar% {
+ extract_trace(params = params,
+                    y = params$Y0,
+                    data = d,
+                    data_type = dtype,
+                    npart = npart,
+                    tend = nrow(d),
+                    dt = dt,
+                    error_pdf = "pois",
+                    negbin_size = 15,
+                    backward_sampling = TRUE,
+                    stoch = FALSE)
+}
+parallel::stopCluster(cl)
+  
+parset_chr <- paste0(dtype, "_I0=", params$I0, "_npart=", npart,
+           "_nrep=", nrep, "_dt=", dt, "_", tstamp)
+# saveRDS(pf, paste0("outputs/pf_", parset_chr, ".rds"))
+  
+pr <- c(0.025, 0.25, 0.5, 0.75, 0.975)
+Rt_est <- as.data.frame(sapply(pf, function(x) x[, "Rt"]))
+Rt_quantile <- as.data.frame(t(apply(Rt_est, 1, function(x) quantile(x, pr))))
+  
+df <- cbind(Rt_quantile, d)
+col_fill <- "#1F618D"
+col_dat <- "grey70"
+df$Rt <- dat$ode$daily_Rt
+
+plt <- ggplot(df, aes(x = date)) +
+    geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`), fill = col_fill, alpha = 0.5) +
+    geom_ribbon(aes(ymin = `25%`, ymax = `75%`), fill = col_fill, alpha = 0.8) +
+    geom_line(aes(y = `50%`), color = col_fill, size = 1.2) +
+    geom_line(aes(x = date + 1, y = Rt), size = 1, linetype = "dashed") +
+    geom_hline(yintercept = 1, color = "darkred", size = 1, linetype = "dotted")+
+    labs(title = parset_chr, y = expression(italic(R)[italic(t)]), x = "")
+plt  
+# ggsave(paste0("plots/", parset_chr, ".png"), plt)
+```
+#### EpiEstim
+```{r}
+
+```
+
+#### Figure 
+```{r}
+
+```
+
+
+### Fitting confirmation time series from the stochastic model 
+```{r}
+# library(pfilterCOVID)
+library(ggplot2)
+theme_set(theme_bw())
+tstamp <- "20220105"
+I0 <- 100 
+dat <- readRDS(paste0("outputs/Rt_dataset_I0=", I0, "_", tstamp, ".rds"))
+params <- dat$params
+params$time_dep_Rt <- FALSE
+
+nrep <- 1e2
+npart <- 1e3
+dt <- 0.2
+betavol <- 0.2
+
+library(parallel)
+library(doParallel)
+ncores <- detectCores() 
+
+dtype <- "confirmation"
+for (k in 1:20) {
+  d <- data.frame(date = dat$time,
+                 daily_confirmed = round(dat$stoch_perfect_obs$daily_confirmed[,k]))
+  
+  tailsum <- sum(tail(d$daily_confirmed))
+  message(paste0("k = ", k, ", tailsum = ", tailsum))
+  
+  if (tailsum > 0) {
+    tbegin <- Sys.time()
+    
+    set.seed(42)
+    cl <- makeCluster(getOption("cl.cores", 2))
+    doParallel::registerDoParallel(cl)
+    
+    params[["betavol"]] <- betavol
+    
+    pf <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %dopar% {
+      extract_trace(params = params,
+                    y = params$Y0,
+                    data = d,
+                    data_type = dtype,
+                    npart = npart,
+                    tend = nrow(d),
+                    dt = dt,
+                    error_pdf = "pois",
+                    negbin_size = 15,
+                    backward_sampling = TRUE,
+                    stoch = FALSE)
+    }
+    parallel::stopCluster(cl)
+      
+    telapsed <- Sys.time() - tbegin
+    message(paste0("time elapsed = ", telapsed))
+    
+    parset_chr <- 
+        paste0(dtype, "_I0=", params$I0, "_betavol=", params[["betavol"]], "_npart=", npart, "_nrep=", nrep, "_dt=", dt, "_", "k=", k, "_", tstamp)
+      
+    saveRDS(pf, paste0("outputs/pf_", parset_chr, ".rds"))
+      
+    pr <- c(0.025, 0.25, 0.5, 0.75, 0.975)
+    Rt_est <- as.data.frame(sapply(pf, function(x) x[, "Rt"]))
+    Rt_quantile <- as.data.frame(t(apply(Rt_est, 1, function(x) quantile(x, pr))))
+      
+    df <- cbind(Rt_quantile, d)
+    col_fill <- "#1F618D"
+    col_dat <- "grey70"
+    df$Rt <- dat$ode$daily_Rt
+    
+    plt <- 
+      ggplot(df, aes(x = date)) +
+      geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`), fill = col_fill, alpha = 0.5) +
+      geom_ribbon(aes(ymin = `25%`, ymax = `75%`), fill = col_fill, alpha = 0.8) +
+      geom_line(aes(y = `50%`), color = col_fill, size = 1) +
+      geom_line(aes(x = date + 1, y = Rt), size = 1, linetype = "dashed") +
+      geom_hline(yintercept = 1, color = "darkred", size = 1, linetype = "dotted")+
+      labs(title = parset_chr, y = expression(italic(R)[italic(t)]), x = "")
+        
+    ggsave(paste0("plots/", parset_chr, ".png"), plt)
+  }
+}
+```
+#### EpiEstim
+```{r}
+
+```
+#### RMSE comparison
+
+#### Figure
+```{r}
+
+```
+
+### Fitting confirmation time series from the stochastic model
+This is designed to explore how the rolling average may help to identify the overall pattern by smoothing short-term fluctuations
+```{r}
+# library(pfilterCOVID)
+library(ggplot2)
+theme_set(theme_bw())
+
+tstamp <- "20220105"
+I0 <- 10
+dat <- readRDS(paste0("outputs/Rt_dataset_I0=", I0, "_", tstamp, ".rds"))
+params <- dat$params
+params$time_dep_Rt <- FALSE
+
+nrep <- 1e2
+npart <- 1e3
+dt <- 0.2
+betavol <- 0.2
+
+library(parallel)
+library(doParallel)
+
+ncores <- detectCores() 
+dtype <- "confirmation"
+
+roll_window <- 7
+for (k in 1:20) {
+  dd <- dat$stoch_perfect_obs$daily_confirmed[,k]
+  roll_case <- 
+    data.table::frollmean(dd, n=roll_window, align="center")
+  # replace the missing values, from rolling mean, with the original values just for convenience. This should not affect the estimates as they are the at the very beginning or the very end
+  roll_case[1:3] <- dd[1:3] # include original data
+  roll_case[(length(dd)-3):length(dd)] <- dd[(length(dd)-3):length(dd)] # include original data
+  
+  d <- data.frame(date = dat$time,
+                 daily_confirmed = round(roll_case))
+  
+  tailsum <- sum(tail(d$daily_confirmed))
+  message(paste0("k = ", k, ", tailsum = ", tailsum))
+  
+  if (tailsum > 0) {
+    tbegin <- Sys.time()
+    
+    set.seed(42)
+    cl <- makeCluster(getOption("cl.cores", 2))
+    doParallel::registerDoParallel(cl)
+    
+    params[["betavol"]] <- betavol
+    
+    pf <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %dopar% {
+      extract_trace(params = params,
+                    y = params$Y0,
+                    data = d,
+                    data_type = dtype,
+                    npart = npart,
+                    tend = nrow(d),
+                    dt = dt,
+                    error_pdf = "pois",
+                    negbin_size = 15,
+                    backward_sampling = TRUE,
+                    stoch = FALSE)
+    }
+    parallel::stopCluster(cl)
+      
+    telapsed <- Sys.time() - tbegin
+    message(paste0("time elapsed = ", telapsed))
+    
+    parset_chr <- 
+        paste0(dtype, "_I0=", params$I0, "_betavol=", params[["betavol"]], "_npart=", npart, "_nrep=", nrep, "_dt=", dt, "_", "k=", k, "_rollwd=", roll_window, "_", tstamp)
+      
+    saveRDS(pf, paste0("outputs/pf_", parset_chr, ".rds"))
+      
+    pr <- c(0.025, 0.25, 0.5, 0.75, 0.975)
+    Rt_est <- as.data.frame(sapply(pf, function(x) x[, "Rt"]))
+    Rt_quantile <- as.data.frame(t(apply(Rt_est, 1, function(x) quantile(x, pr))))
+      
+    df <- cbind(Rt_quantile, d)
+    col_fill <- "#1F618D"
+    col_dat <- "grey70"
+    df$Rt <- dat$ode$daily_Rt
+    
+    plt <- ggplot(df, aes(x = date)) +
+        geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`), fill = col_fill, alpha = 0.5) +
+        geom_ribbon(aes(ymin = `25%`, ymax = `75%`), fill = col_fill, alpha = 0.8) +
+        geom_line(aes(y = `50%`), color = col_fill, size = 1) +
+        geom_line(aes(x = date + 1, y = Rt), size = 1, linetype = "dashed") +
+        geom_hline(yintercept = 1, color = "darkred", size = 1, linetype = "dotted")+
+        labs(title = parset_chr, y = expression(italic(R)[italic(t)]), x = "")
+        # scale_y_continuous(limits=c(0,3))
+    
+    # plt  
+    ggsave(paste0("plots/", parset_chr, ".png"), plt)
+  }
+}  
+```
+
+### Fitting confirmation time series from the stochastic model with imperfect
+observation
+```{r}
+# library(pfilterCOVID)
+library(ggplot2)
+theme_set(theme_bw())
+tstamp <- "20220105"
+I0 <- 100 
+dat <- readRDS(paste0("outputs/Rt_dataset_I0=", I0, "_", tstamp, ".rds"))
+params <- dat$params
+params$time_dep_Rt <- FALSE
+
+nrep <- 1e2
+npart <- 1e3
+dt <- 0.2
+betavol <- 0.2
+
+library(parallel)
+library(doParallel)
+ncores <- detectCores() 
+
+dtype <- "confirmation"
+detect_prob <- 0.3
+# id <- which(dat$stoch_partial_obs$probs == 0.3) # bug when 0.3 is applied...
+id <- grep(detect_prob, dat$stoch_partial_obs$probs)
+# 1 through 7 indicating detection prob ranging from 0.2 to 0.8
+for (k in 1:20) {
+  d <- data.frame(date = dat$time,
+                  daily_confirmed = round(dat$stoch_partial_obs$daily_detected[[id]][,k]))
+  
+  tailsum <- sum(tail(d$daily_confirmed))
+  message(paste0("k = ", k, ", tailsum = ", tailsum))
+  
+  if (tailsum > 0) {
+    tbegin <- Sys.time()
+    
+    set.seed(42)
+    cl <- makeCluster(getOption("cl.cores", 2))
+    doParallel::registerDoParallel(cl)
+    
+    params[["betavol"]] <- betavol
+    
+    pf <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %dopar% {
+      extract_trace(params = params,
+                    y = params$Y0,
+                    data = d,
+                    data_type = dtype,
+                    npart = npart,
+                    tend = nrow(d),
+                    dt = dt,
+                    error_pdf = "pois",
+                    negbin_size = 15,
+                    backward_sampling = TRUE,
+                    stoch = FALSE)
+    }
+    parallel::stopCluster(cl)
+      
+    telapsed <- Sys.time() - tbegin
+    message(paste0("time elapsed = ", telapsed))
+    
+    parset_chr <- 
+        paste0(substr(dtype,1,4), "_I0=", params$I0, "_betavol=", params[["betavol"]], "_np=", npart, "_nrep=", nrep, "_dt=", dt,
+               "_", "prob=", detect_prob, "_", "k=", k, "_", tstamp)
+      
+    saveRDS(pf, paste0("outputs/pf_", parset_chr, ".rds"))
+      
+    pr <- c(0.025, 0.25, 0.5, 0.75, 0.975)
+    Rt_est <- as.data.frame(sapply(pf, function(x) x[, "Rt"]))
+    Rt_quantile <- as.data.frame(t(apply(Rt_est, 1, function(x) quantile(x, pr))))
+      
+    df <- cbind(Rt_quantile, d)
+    col_fill <- "#1F618D"
+    col_dat <- "grey70"
+    df$Rt <- dat$ode$daily_Rt
+    
+    plt <- 
+      ggplot(df, aes(x = date)) +
+      geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`), fill = col_fill, alpha = 0.5) +
+      geom_ribbon(aes(ymin = `25%`, ymax = `75%`), fill = col_fill, alpha = 0.8) +
+      geom_line(aes(y = `50%`), color = col_fill, size = 1) +
+      geom_line(aes(x = date + 1, y = Rt), size = 1, linetype = "dashed") +
+      geom_hline(yintercept = 1, color = "darkred", size = 1, linetype = "dotted")+
+      labs(title = parset_chr, y = expression(italic(R)[italic(t)]), x = "")
+        
+    ggsave(paste0("plots/", parset_chr, ".png"), plt)
+  }
+}
+```
+
+
+### Fitting confirmation time series from the stochastic model
+While generation time (aka, generation interval) is used to correctly reproduce
+the epidemic curve, serial interval, time interval between symptom onsets of 
+successive cases, is often used instead because of its easier estimation.
+For this, we can set the serial interval differently for the EpiEstim estimation
+
+EpiEStim with shortened serial interval.
+
+```{r}
+
+```
+
+
+
