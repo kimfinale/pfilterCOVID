@@ -1,8 +1,10 @@
+## Estimating the instantaneous reproduction number (*R*<sub>*t*</sub>) using particle filter
+
 ### Install the pfilterCOVID package
 
 ``` r
-devtools::load_all()
-devtools::install()
+# devtools::load_all()
+# devtools::install()
 devtools::install_github("kimfinale/pfilterCOVID", force = TRUE)
 ```
 
