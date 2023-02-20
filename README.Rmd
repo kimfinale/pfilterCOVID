@@ -1,16 +1,29 @@
-## Estimating the instantaneous reproduction number (*R*<sub>*t*</sub>) using particle filter
+---
+title: "Daily Rt by using particle filter"
+date: January 19, 2023
+output:
+  md_document:
+    variant: markdown_github
+editor_options: 
+  chunk_output_type: console
+---
+
+
+## Estimating the instantaneous reproduction number ($R_t$) using particle filter
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE)
+```
 
 ### Install the pfilterCOVID package
-
-``` r
+```{r}
 # devtools::load_all()
 # devtools::install()
 devtools::install_github("kimfinale/pfilterCOVID", force = TRUE)
 ```
 
 ### Load packages
-
-``` r
+```{r}
 library(pfilterCOVID)
 library(magrittr)
 library(deSolve)
@@ -24,8 +37,7 @@ library(rstan)
 ```
 
 ### Set parameter values
-
-``` r
+```{r}
 # beta is updated by R0
 THETA <- list(beta = 0.3, R0 = 1.2, epsilon = 1/2.5, delta = 1/5, 
             gamma = 1/2.5, bp = 1, ba = 1, fa = 0.3, fd = 1, I0 = 1e2, # I0 = initial infection size
@@ -39,8 +51,7 @@ usethis::use_data(THETA, overwrite = TRUE)
 ```
 
 ### Run the ODE version (generate the dataset, D1, and Figure 2A)
-
-``` r
+```{r}
 theme_set(theme_bw())
 params <- THETA
 tend <- params$tend
@@ -82,8 +93,7 @@ fig2a <- out_long %>%
 ```
 
 ### Plots of Rt and infection/confirmation time series of stoch outputs
-
-``` r
+```{r}
 # Rt data set; Rt_dataset_I0=100_20220105.rds, Rt_dataset_I0=10_20220105.rds
 tstamp <- "20220105"
 dat <- readRDS(paste0("outputs/Rt_dataset_I0=100_", tstamp, ".rds"))
@@ -108,12 +118,9 @@ plt_case <- ggplot() +
   labs(x="time", y="", color="")
 ```
 
-### Run the Gillespie’s direct method (generate the datset, D2, and Figure 2)
-
-This is to create a stochastic data set based on the Gillespie’s direct
-method
-
-``` r
+### Run the Gillespie's direct method (generate the datset, D2, and Figure 2)
+This is to create a stochastic data set based on the Gillespie's direct method
+```{r}
 set.seed(42)
 # tstamp <- format(Sys.time(), "%Y%m%d")
 nrun <- 20 # increase the number to obtain large samples
@@ -183,12 +190,11 @@ figure2
 # ggsave("daily_case.png", figure2)
 ```
 
+
 #### Total dataset
-
-The data set that contains all the necessary information: Rt trajectory,
-ODE and stochastic model result
-
-``` r
+The data set that contains all the necessary information: Rt trajectory, ODE
+and stochastic model result
+```{r}
 Rt_dataset <- list()
 Rt_dataset$README <- "To see if potential bias of Rt estimation based on the confirmation data set, especially in the most recent time, is reduced or eliminated when the number of cases are large"
 Rt_dataset$ode <- out
@@ -200,12 +206,11 @@ Rt_dataset$y0 <- params$Y0
 # saveRDS(Rt_dataset, paste0("outputs/Rt_dataset_I0=100_", tstamp, ".rds"))
 ```
 
-### Rt estimation using the particle filter
 
-Particle filtering - particle_filter Expect errors since backward
-sampling is not in place
-
-``` r
+### Rt estimation using the particle filter 
+Particle filtering - particle_filter
+Expect errors since backward sampling is not in place
+```{r}
 set.seed(1)
 tstamp <- "20220105"
 I0 <- 100
@@ -259,12 +264,10 @@ plot(dat$ode$time + 2, dat$ode$daily_Rt, type="l")
 lines(med * R0_dur, lwd=2, col=3)
 ```
 
+
 #### Fitting the infection or confirmation time series from the ODE model (also generates Figure 3)
-
-This uses the extract_trace function that calls pfilter function and
-also executes backward sampling
-
-``` r
+This uses the extract_trace function that calls pfilter function and also executes backward sampling
+```{r}
 # apply on infection time series
 theme_set(theme_bw())
 
@@ -371,9 +374,9 @@ figure3 <- plot_grid(fig3a, fig3b, nrow = 2, labels = "AUTO")
 figure3
 ```
 
-#### Fitting confirmation time series from the stochastic model (also generates Figure 4)
 
-``` r
+#### Fitting confirmation time series from the stochastic model (also generates Figure 4)
+```{r}
 library(pfilterCOVID)
 library(ggplot2)
 theme_set(theme_bw())
@@ -538,11 +541,10 @@ figure4 <- plot_grid(left_col, right_col, ncol = 2)
 figure4
 ```
 
+
 #### Rt estimation using EpiEstim
-
 Computing mean and std of generation time
-
-``` r
+```{r}
 # infection (disease) age for generation time
 norm_factor <- integrate(function(x) {
   1 - pgamma(x, shape = 2, rate = 1/2.5)}, 0, Inf)
@@ -569,11 +571,8 @@ std <- 4.14578 # std_si
 ```
 
 #### Apply EpiEstim on daily confirmation series (also generated Figure 5)
-
-Expect discrepancy (i.e., delay) between the pre-defined Rt and the
-estimated Rt)
-
-``` r
+Expect discrepancy (i.e., delay) between the pre-defined Rt and the estimated Rt)
+```{r}
 # Moving average
 MA <- function(input_ts, lookback) {
   sum <- 0
@@ -619,9 +618,8 @@ figure5 <-
 figure5
 ```
 
-#### Introduce a delay distribution to address the delay observed above (for deconvolutions)
-
-``` r
+#### Introduce a delay distribution  to address the delay observed above (for deconvolutions)
+```{r}
 delay_dist <- {
   t <- seq(0, 19)
   p_unnorm <- pgamma(t + 1, shape = 3, rate = 1/2.5) - 
@@ -631,11 +629,8 @@ delay_dist <- {
 ```
 
 #### Rt based on renewal equation (without misspecification effect of SI)
-
-Estimate Rt by applying deconvolution on confimration series, followed
-by EpiEstim (also generates Figure 6)
-
-``` r
+Estimate Rt by applying deconvolution on confimration series, followed by EpiEstim (also generates Figure 6)
+```{r}
 # apply on the stochastic seed #19 (fig 6a)
 input_ts <- dat$stoch_perfect_obs$daily_confirmed[,19]
 # obtain moving average before deconvolution
@@ -810,11 +805,8 @@ figure6
 ```
 
 #### Rt based on renewal equation (with misspecification effect of SI)
-
-Estimate Rt by applying deconvolution on confimration series, followed
-by EpiEstim (also generates Figure 7)
-
-``` r
+Estimate Rt by applying deconvolution on confimration series, followed by EpiEstim (also generates Figure 7)
+```{r}
 # apply on the stochastic seed #19 (fig 7a)
 input_ts <- dat$stoch_perfect_obs$daily_confirmed[,19]
 ma <- seq(0, length(input_ts)-1)
@@ -978,8 +970,7 @@ figure7
 ### Performance comarison between partifle filtering and renewal equation-based estimations
 
 #### Plot for the curve of pre-defined Rt by periods of different epidemic characteristics (Figure 8)
-
-``` r
+```{r}
 R_flat <- c(dat$Rt[1:101], rep(NA,32), dat$Rt[134:195], rep(NA, 6))
 R_curve <- c(rep(NA, 100), dat$Rt[101:127], rep(NA, 74))
 R_curve_last <- c(rep(NA, 126), dat$Rt[127:134], rep(NA, 67))
@@ -988,10 +979,8 @@ R_last <- c(rep(NA, 194), dat$Rt[195:201])
 figure8 <- ggplot()+geom_line(aes(x=dat$time,y=R_flat), color = "black", size = 0.5)+geom_line(aes(x=dat$time,y=R_curve), color="red", size = 0.5)+geom_line(aes(x=dat$time,y=R_curve_last), linetype = "dotted", size = 0.5, color="red")+geom_line(aes(x=dat$time,y=R_last), linetype = "dotted", size = 0.5)+labs(x=dat$time,y = expression(italic(R)[italic(t)]), x = "Time (day)")
 figure8
 ```
-
 #### Extra simulaions to terminate estimation on the last day of the dynamic period (i.e., day = 132) (also generates Figure 9)
-
-``` r
+```{r}
 input_ts <- dat$stoch_perfect_obs$daily_confirmed[,4][1:133]
 # PF
 d_stoc_04_mid <- data.frame(date = dat$time[1:133],
@@ -1115,9 +1104,8 @@ figure9 <- plot_grid(fig9a, fig9b, fig9c, nrow = 3, labels = c("A", "B", "C"))
 figure9
 ```
 
-#### Calculate RMSE between the pre-defined Rt and estimated Rt’s (for Table 2)
-
-``` r
+#### Calculate RMSE between the pre-defined Rt and estimated Rt's (for Table 2)
+```{r}
 dg <- df_stoc_04[82:201,]
 dg1 <- df_epi_4[84:199,]
 dg2 <- df_epi_4m[84:199,]
