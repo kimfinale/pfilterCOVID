@@ -10,13 +10,13 @@ editor_options:
 
 #### Install packages
 ```{r}
-devtools::load_all()
-devtools::install()
-devtools::install_github("kimfinale/pfilterCOVID")
+# devtools::load_all()
+# devtools::install()
+# devtools::install_github("kimfinale/pfilterCOVID")
 ```
 
 ### Initial condition
-```{r}
+```{r, eval=FALSE}
 library(pfilterCOVID)
 # beta is updated by R0
 THETA <- list(beta = 0.3, R0 = 1.2, epsilon = 1/2.5, delta = 1/5, 
@@ -198,17 +198,57 @@ library(tidyverse)
 oderes <- dat$ode[, c("time", "daily_infected", "daily_confirmed")]
 oderes %>% pivot_longer(cols = -time) -> oderes
 
-stochres <- dat$stoch_perfect_obs$daily_confirmed[,1:20]
+stochres <- dat$stoch_perfect_obs$daily_confirmed[, 1:20]
 stochres$time <- dat$time
 
 stochres %>% pivot_longer(cols = -time) -> stochres
 
 plt <- ggplot() +
-  geom_line(data = stochres, aes(time, value, group=name), color="grey50") +
+  # geom_line(data = stochres, aes(time, value, group=name), color="grey50") +
   geom_line(data = oderes, aes(time, value, color=name), size=1.2) + 
-  labs(x="time", y="", color="")
+  labs(x="time", y="", color="") + 
+  theme(legend.position="top")
    
-# ggsave("plots/daily_case.png", plt)
+# ggsave("plots/daily_inf_conf.png", plt)
+#-------------------------------------------------------------------
+# data set generation for Rt presentation 
+ 
+df <- data.frame(Day = dat$time, 
+                 Rt = round(dat$ode$daily_Rt, 1), 
+                 Infected = round(dat$ode$daily_infected), 
+                 Confirmed = round(dat$ode$daily_confirmed))
+data.table::fwrite(df, "outputs/data.csv")
+
+# Serial interval for the model from Mathematica
+mean <- 6.25 # mean_si
+std <- 4.14578 # std_si
+get_gamma_params <- function(mean, std) {
+  # k*theta*theta = variance
+  # k*theta = mean
+  theta <- std*std/mean # scale
+  k <- mean/theta # shape
+  return(list(k = k , theta = theta))
+}
+gampar <- get_gamma_params(mean = mean, std = std)
+plot(0:20, dgamma(0:20, shape = gampar$k, scale = gampar$theta), xlab = "Day", ylab = "Prob")
+d <- data.frame(Day = 0:20, Prob = dgamma(0:20, shape = gampar$k, scale = gampar$theta))
+plt <- ggplot(d, aes(Day, Prob)) +
+  geom_point() + 
+  labs(title = expression(Generation~interval~omega))
+
+ggsave(paste0("plots/si.png"), plt, width=3.4*1.6, height=2.7*1.6, units="in")
+
+calc_Rt
+
+df$Infected[101] / sum(df$Infected[91:100] * dgamma(10:1, shape = gampar$k, scale = gampar$theta))  
+
+
+df$Infected[101] / sum(df$Infected[81:100] * dgamma(20:1, shape = gampar$k, scale = gampar$theta))  
+
+
+df2 <- data.frame(Day = 0:20, wt = round(dgamma(0:20, shape = gampar$k, scale = gampar$theta),3))
+data.table::fwrite(df2, "outputs/wt.csv")
+#-----------------------------------------------------------------
 ```
 
 ### Rt estimation using the particle filter 
@@ -231,8 +271,7 @@ dat$params$time_dep_Rt <- FALSE # this must be set FALSE to produce an estimate
 
 params <- dat$params
 #standard deviation of the prior distribution
-params[["betavol"]] <- 0.2 
-
+params[["betavol"]] <- 0.2
 tbegin <- Sys.time()
 
 pf <- pfilter(
@@ -272,9 +311,6 @@ lines(med * R0_dur, lwd=2, col=3)
 This uses the extract_trace function that calls pfilter function and also executes backward sampling
 #### PF 
 ```{r}
-# devtools::load_all()
-# devtools::install()
-
 library(pfilterCOVID)
 library(ggplot2)
 theme_set(theme_bw())
@@ -437,11 +473,15 @@ for (k in 1:20) {
   }
 }
 ```
+
 #### EpiEstim
 ```{r}
-
+#deconvolution
 ```
+
 #### RMSE comparison
+```{r}
+```
 
 #### Figure
 ```{r}

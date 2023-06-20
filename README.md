@@ -1,11 +1,14 @@
-## Estimating the instantaneous reproduction number (*R*<sub>*t*</sub>) using particle filter
+Estimating the instantaneous reproduction number (R_t) by using particle
+filter
+================
+June 20, 2023
 
 ### Install the pfilterCOVID package
 
 ``` r
 # devtools::load_all()
 # devtools::install()
-devtools::install_github("kimfinale/pfilterCOVID", force = TRUE)
+# devtools::install_github("kimfinale/pfilterCOVID", force = TRUE)
 ```
 
 ### Load packages
@@ -15,12 +18,19 @@ library(pfilterCOVID)
 library(magrittr)
 library(deSolve)
 library(tidyverse)
+```
+
+``` r
 library(ggplot2)
 library(cowplot)
 library(EpiEstim)
 library(dplyr)
 library(rstan)
-# source('deconvolve.R')
+```
+
+
+``` r
+source('R/deconvolve.R')
 ```
 
 ### Set parameter values
@@ -38,10 +48,12 @@ THETA$tend <- 200
 usethis::use_data(THETA, overwrite = TRUE)
 ```
 
+
 ### Run the ODE version (generate the dataset, D1, and Figure 2A)
 
 ``` r
 theme_set(theme_bw())
+
 params <- THETA
 tend <- params$tend
 
@@ -64,21 +76,39 @@ out$daily_Rt <- sapply(0:tend, function(x) get_Rt(x))
 # (corresponds to the dataset, D1, in the manuscript)
 
 # saveRDS(out, paste0("outputs/ode_I0_100_", tstamp, ".rds"))
-
 out_long <- out %>% pivot_longer(-time) 
 out_long$name <- factor(out_long$name,
                         levels = c("S", "E", "P", "A", "I", "R", 
                                   "CE", "CI", "CR", "daily_infected", 
                                   "daily_symptom", "daily_confirmed", "daily_Rt"))
+```
+
+#### Figure 2A
+
+``` r
+tstamp <- "20230619"
+out <- readRDS(paste0("outputs/ode_I0_100_", tstamp, ".rds"))
+out_long <- out %>% pivot_longer(-time) 
+out_long$name <- factor(out_long$name,
+                        levels = c("S", "E", "P", "A", "I", "R", 
+                                  "CE", "CI", "CR", "daily_infected", 
+                                  "daily_symptom", "daily_confirmed", "daily_Rt"))
+
 # Generate Figure 2A.
 fig2a <- out_long %>%
   filter(name == "daily_infected" | 
            name == "daily_symptom" | name == "daily_confirmed") %>%
   ggplot(aes(x = time, y = value, color = name)) +
-  geom_line(size = 1.2) +
+  geom_line(linewidth=1.2) +
   labs(x='Time (day)', y = 'Number of individuals', color = "") +
-       theme(legend.position = c(.1, .9), legend.background = element_rect(fill='transparent')) +
-  scale_color_hue(labels=c("daily_infected" = "Infection", "daily_symptom"="Symptom", "daily_confirmed"="Confirmation"))
+       theme(legend.position = c(.2, .9), 
+             legend.background = element_rect(fill='transparent')) +
+  scale_color_hue(labels=c("daily_infected" = "Infection",
+                           "daily_symptom"="Symptom",
+                           "daily_confirmed"="Confirmation"))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 ```
 
 ### Plots of Rt and infection/confirmation time series of stoch outputs
@@ -91,7 +121,11 @@ dat <- readRDS(paste0("outputs/Rt_dataset_I0=100_", tstamp, ".rds"))
 # plot for the pre-defined Rt
 fig2b <- ggplot() +
   geom_line(aes(x=dat$time, y = dat$Rt)) +
-  labs(x="Time (day)", y = expression(paste('Effective reproduction number, ', italic(R)[italic(t)])))  
+  labs(x="Time (day)", y = expression(paste(italic(R)[italic(t)])))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text = element_text(size=13))
+    
 
 # Generate plots for a comparison of simulated data (deterministic vs. stochastic, both with perfect observation) for daily_infected or confirmed.
 oderes <- dat$ode[, c("time", "daily_infected", "daily_confirmed")]
@@ -102,10 +136,10 @@ stochres$time <- dat$time
 
 stochres %>% pivot_longer(cols = -time) -> stochres
 
-plt_case <- ggplot() +
-  geom_line(data = stochres, aes(time, value, group=name), color="grey50") +
-  geom_line(data = oderes, aes(time, value, color=name), size=1.2) + 
-  labs(x="time", y="", color="")
+# plt_case <- ggplot() +
+#   geom_line(data = stochres, aes(time, value, group=name), color="grey50") +
+#   geom_line(data = oderes, aes(time, value, color=name), size=1.2) + 
+#   labs(x="time", y="", color="")
 ```
 
 ### Run the Gillespie’s direct method (generate the datset, D2, and Figure 2)
@@ -125,6 +159,14 @@ res <- gillespie_run(func = gillespie_sepair,
                      params = params, 
                      report_dt = 1)
 
+# saveRDS(res, "outputs/res_20230619.rds")
+```
+
+#### Figure 2c
+
+``` r
+res <- readRDS("outputs/res_20230619.rds")
+nrun <- 20 
 daily_infected <- data.frame(matrix(0, nrow = tend + 1, ncol = nrun))
 daily_symptom <- data.frame(matrix(0, nrow = tend + 1, ncol = nrun))
 daily_confirmed <- data.frame(matrix(0, nrow = tend + 1, ncol = nrun))
@@ -143,29 +185,6 @@ for (i in 1:nrow(dat$stoch_perfect_obs$daily_infected)) {
   daily_infected[,i] <- dat$stoch_perfect_obs$daily_infected[[i]]
 }
 
-df <- daily_infected
-df$time <- 0:tend
-df %>% pivot_longer(cols = -time) -> df
-
-# Generate Figure 2C.
-fig2c <- ggplot() +
-  geom_line(data = df, aes(time, value, group = name), 
-            color = "grey80") +
-  geom_line(data = out, aes(time, daily_infected), # ODE model output
-            color = "darkred",
-            size = 1.5, inherit.aes = FALSE) + 
-  labs(x="Time (day)", y="Daily infected cases", color="") + 
-  geom_segment(aes(x=c(0,0,0), xend=c(5,5,5), y=c(2000,1950,1900),
-                yend=c(2000,1950,1900)), size=c(1,1,1), 
-               color = c("grey80", "darkred","black"),
-               linetype = c("solid","solid","dotted")) +
-  geom_line(aes(dat$time, rowMeans(dat$stoch_perfect_obs$daily_infected)), # mean of stochastic simulations ## simply to load the data we are using (2,000 simulations) - save time
-            linetype = "dotted",
-            size = 1.5, inherit.aes = FALSE) +
-  geom_text(aes(x=c(7,7,7), y=c(2000,1950,1900)), size=c(4,4,4), 
-               hjust = c(0,0,0), vjust = c(0.5,0.5,0.5), 
-               label = c("Stochastic simulations of SEPAIR model", "Determinstic simulations of SEPAIR model", "Mean of all stochastic simulations of SEPAIR model"))
-
 stoch <- list()
 stoch$daily_confirmed <- daily_confirmed
 stoch$daily_symptom <- daily_symptom
@@ -175,12 +194,50 @@ stoch$daily_Rt <- sapply(0:tend, function(x) get_Rt(x))
 
 # saveRDS(stoch, paste0("outputs/stoch_I0_100_", tstamp, ".rds"))
 
+df <- daily_infected
+df$time <- 0:tend
+df %>% pivot_longer(cols = -time) -> df
+
+# Generate Figure 2C.
+locy = c(2000,1920,1840)
+fig2c <- ggplot() +
+  geom_line(data = df, aes(time, value, group = name), 
+            color = "grey80") +
+  geom_line(data = out, aes(time, daily_infected), # ODE model output
+            color = "darkred",
+            size = 1.5, inherit.aes = FALSE) + 
+  labs(x="Time (day)", y="Daily infected cases", color="") + 
+  geom_segment(aes(x=c(0,0,0), xend=c(5,5,5), y=locy,
+                yend=locy), size=c(1,1,1), 
+               color = c("grey80", "darkred","black"),
+               linetype = c("solid","solid","dotted")) +
+  geom_line(aes(dat$time, rowMeans(dat$stoch_perfect_obs$daily_infected)), # mean of stochastic simulations ## simply to load the data we are using (2,000 simulations) - save time
+            linetype = "dotted",
+            size = 1.5, inherit.aes = FALSE) +
+  geom_text(aes(x=c(7,7,7), y=locy), size=c(4.6,4.6,4.6), 
+               hjust = c(0,0,0), vjust = c(0.5,0.5,0.5), 
+               label = c("Stochastic simulations",
+                         "Determinstic simulation",
+                         "Mean of stochastic simulations"))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
+```
+
+
+``` r
 # Generate Figure 2.
 # NB. Figure 1 is a compartment flow diagram which was not generated by code
 left_col_fig2 <- plot_grid(fig2a, fig2b, nrow = 2, labels = "AUTO")
 figure2 <- plot_grid(left_col_fig2, fig2c, labels = c("", "C"))
 figure2
-# ggsave("daily_case.png", figure2)
+```
+
+![](README_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
+
+``` r
+# ggsave("plots/daily_case_20230619.png", plot=figure2,
+#        width=3.4*3, height=2.7*3, units="in")
 ```
 
 #### Total dataset
@@ -259,7 +316,9 @@ plot(dat$ode$time + 2, dat$ode$daily_Rt, type="l")
 lines(med * R0_dur, lwd=2, col=3)
 ```
 
-#### Fitting the infection or confirmation time series from the ODE model (also generates Figure 3)
+![](README_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+
+### Fitting the infection or confirmation time series from the ODE model
 
 This uses the extract_trace function that calls pfilter function and
 also executes backward sampling
@@ -280,13 +339,20 @@ npart <- 1e4
 dt <- 0.2
 library(parallel)
 library(doParallel)
+```
 
+
+``` r
 ncores <- detectCores() - 1
 d_inf <- data.frame(date = dat$time, daily_infected = round(dat$ode$daily_infected))
 set.seed(42)
 cl <- makeCluster(getOption("cl.cores", ncores))
 doParallel::registerDoParallel(cl)
+```
 
+#### PF based on the infection time series
+
+``` r
 pf_inf <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %dopar% {
  extract_trace(params = params,
                     y = params$Y0,
@@ -301,7 +367,17 @@ pf_inf <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %dopa
                     stoch = FALSE)
 }
 parallel::stopCluster(cl)
-  
+# saveRDS(pf_inf, "outputs/pf_inf_20230619.rds")
+```
+
+#### Figure 3
+
+``` r
+pf_inf <- readRDS("outputs/pf_inf_20230619.rds")
+nrep <- 1e3
+npart <- 1e4
+dt <- 0.2
+tstamp <- "20220105"
 parset_chr <- paste0(dtype, "_I0=", params$I0, "_npart=", npart,
            "_nrep=", nrep, "_dt=", dt, "_", tstamp)
   
@@ -321,13 +397,28 @@ fig3a <- ggplot(df_inf[81:201,], aes(x = date)) +
     geom_line(aes(x = date, y = dat$ode$daily_Rt[80:200]), size = 1, linetype = "dashed") +
     geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
     labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") + 
-    coord_cartesian(ylim = c(0.25, 2.25))+scale_y_continuous(breaks=seq(0,2.25,by=0.5))
-# fig3a
-# ggsave(paste0("plots/", parset_chr, ".png"), plt)
+    coord_cartesian(ylim = c(0.25, 2.25))+scale_y_continuous(breaks=seq(0,2.25,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
+fig3a
+```
 
+![](README_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
+
+``` r
+# ggsave(paste0("plots/", parset_chr, ".png"), plt)
+```
+
+``` r
 # apply on confirmation time series
 d_conf <- data.frame(date = dat$time,
                daily_confirmed = round(dat$ode$daily_confirmed))
+```
+
+#### PF based on the confirmation time series
+
+``` r
 set.seed(42)
 cl <- makeCluster(getOption("cl.cores", ncores))
 doParallel::registerDoParallel(cl)
@@ -346,7 +437,13 @@ pf_conf <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %dop
                     stoch = FALSE)
 }
 parallel::stopCluster(cl)
- 
+# saveRDS(pf_conf, "outputs/pf_conf_20230619.rds")  
+```
+
+#### Figure 3b
+
+``` r
+pf_conf <- readRDS("outputs/pf_conf_20230619.rds")
 parset_chr <- paste0(dtype, "_I0=", params$I0, "_npart=", npart,
            "_nrep=", nrep, "_dt=", dt, "_", tstamp)
   
@@ -363,7 +460,10 @@ fig3b <- ggplot(df_conf[81:201,], aes(x = date)) +
     geom_line(aes(x = date, y = dat$ode$daily_Rt[80:200]), size = 1, linetype = "dashed") +
     geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
     labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") + 
-    coord_cartesian(ylim = c(0.25, 2.25))+scale_y_continuous(breaks=seq(0,2.25,by=0.5))
+    coord_cartesian(ylim = c(0.25, 2.25))+scale_y_continuous(breaks=seq(0,2.25,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 # fig3b
 
 # put all together for figure 3
@@ -371,7 +471,14 @@ figure3 <- plot_grid(fig3a, fig3b, nrow = 2, labels = "AUTO")
 figure3
 ```
 
-#### Fitting confirmation time series from the stochastic model (also generates Figure 4)
+![](README_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
+
+``` r
+# ggsave("plots/Rt_recovered_20230619.png", plot=figure3,
+#        width=3.4*2, height=2.7*2, units="in")
+```
+
+### Fitting confirmation time series from the stochastic model
 
 ``` r
 library(pfilterCOVID)
@@ -387,12 +494,17 @@ params[["betavol"]] <- 0.2
 nrep <- 1e3
 npart <- 1e4
 dt <- 0.2
+```
+
+``` r
+d_stoc_19 <- data.frame(date = dat$time, daily_confirmed = round(dat$stoch_perfect_obs$daily_confirmed[,19]))
+```
+
+``` r
 library(parallel)
 library(doParallel)
-
-ncores <- detectCores()
-d_stoc_19 <- data.frame(date = dat$time, daily_confirmed = round(dat$stoch_perfect_obs$daily_confirmed[,19]))
 set.seed(42)
+ncores <- detectCores()
 cl <- makeCluster(getOption("cl.cores", 2))
 doParallel::registerDoParallel(cl)
 
@@ -411,7 +523,13 @@ pf_stoc_19 <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %
                     stoch = FALSE)
 }
 parallel::stopCluster(cl)
-  
+# saveRDS(pf_stoc_19, "outputs/pf_stoc_19_20230619.rds")  
+```
+
+#### Figure 4b
+
+``` r
+pf_stoc_19 <- readRDS("outputs/pf_stoc_19_20230619.rds")
 parset_chr <- paste0(dtype, "_I0=", params$I0, "_npart=", npart,
            "_nrep=", nrep, "_dt=", dt, "_", tstamp)
   
@@ -431,11 +549,22 @@ fig4b <- ggplot(df_stoc_19[81:201,], aes(x = date)) +
     geom_line(aes(x = date + 1, y = Rt), size = 1, linetype = "dashed") +
     geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
     labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") + 
-    coord_cartesian(ylim = c(0.25, 2.75))+scale_y_continuous(breaks=seq(0,2.75,by=0.5))
+    coord_cartesian(ylim = c(0.25, 2.75))+
+  scale_y_continuous(breaks=seq(0,2.75,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
+```
 
+#### PF based on the confirmation time series derived from the stochastic model
+
+``` r
 # apply on the stochastic seed #04 (fig 4c)
 d_stoc_04 <- data.frame(date = dat$time,
                daily_confirmed = round(dat$stoch_perfect_obs$daily_confirmed[,4]))
+```
+
+``` r
 set.seed(42)
 cl <- makeCluster(getOption("cl.cores", 2))
 doParallel::registerDoParallel(cl)
@@ -454,7 +583,11 @@ pf_stoc_04 <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %
                     stoch = FALSE)
 }
 parallel::stopCluster(cl)
-  
+# saveRDS(pf_stoc_04, "outputs/pf_stoc_04_20230619.rds")
+```
+
+``` r
+pf_stoc_04 <- readRDS("outputs/pf_stoc_04_20230619.rds")
 parset_chr <- paste0(dtype, "_I0=", params$I0, "_npart=", npart,
            "_nrep=", nrep, "_dt=", dt, "_", tstamp)
   
@@ -474,11 +607,24 @@ fig4c <- ggplot(df_stoc_04[81:201,], aes(x = date)) +
     geom_line(aes(x = date + 1, y = Rt), size = 1, linetype = "dashed") +
     geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
     labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") + 
-    coord_cartesian(ylim = c(0.25, 2.75))+scale_y_continuous(breaks=seq(0,2.75,by=0.5))
+    coord_cartesian(ylim = c(0.25, 2.75))+
+  scale_y_continuous(breaks=seq(0,2.75,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
+```
 
+#### PF based on the confirmation time series dervied from the stochastic model
+
+Incidence level is lower than the deterministic model
+
+``` r
 # apply on the stochastic seed #02 (fig 4d)
 d_stoc_02 <- data.frame(date = dat$time,
                daily_confirmed = round(dat$stoch_perfect_obs$daily_confirmed[,2]))
+```
+
+``` r
 set.seed(42)
 cl <- makeCluster(getOption("cl.cores", 2))
 doParallel::registerDoParallel(cl)
@@ -497,7 +643,13 @@ pf_stoc_02 <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %
                     stoch = FALSE)
 }
 parallel::stopCluster(cl)
-  
+# saveRDS(pf_stoc_02, "outputs/pf_stoc_02_20230619.rds")  
+```
+
+#### Figure 4d
+
+``` r
+pf_stoc_02 <- readRDS("outputs/pf_stoc_02_20230619.rds")  
 parset_chr <- paste0(dtype, "_I0=", params$I0, "_npart=", npart,
            "_nrep=", nrep, "_dt=", dt, "_", tstamp)
   
@@ -517,7 +669,11 @@ fig4d <- ggplot(df_stoc_02[81:201,], aes(x = date)) +
     geom_line(aes(x = date + 1, y = Rt), size = 1, linetype = "dashed") +
     geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
     labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") + 
-    coord_cartesian(ylim = c(0.25, 2.75))+scale_y_continuous(breaks=seq(0,2.75,by=0.5))
+    coord_cartesian(ylim = c(0.25, 2.75))+
+  scale_y_continuous(breaks=seq(0,2.75,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 # Generate figure 4
 df_stoc <- data.frame(date=dat$ode$time, ode=dat$ode$daily_confirmed, c2=dat$stoch_perfect_obs$daily_confirmed[,2], c4=dat$stoch_perfect_obs$daily_confirmed[,4], c19=dat$stoch_perfect_obs$daily_confirmed[,19])
@@ -528,9 +684,12 @@ fig4a <- ggplot(df_stoc) + geom_line(aes(x=date, y=ode), color="black")+geom_lin
     geom_segment(aes(x=0, xend=5, y=1000, yend=1000), size=1, color = "red", linetype = "solid") +
       geom_segment(aes(x=0, xend=5, y=950, yend=950), size=1, color = "green", linetype = "solid") +
       geom_segment(aes(x=0, xend=5, y=900, yend=900), size=1, color = "blue", linetype = "solid") +
-  geom_text(aes(x=7, y=1000), size=4, hjust=0, vjust=0.5, label="High intensity") +
-  geom_text(aes(x=7, y=950), size=4, hjust=0, vjust=0.5, label="Medium intensity") +
-  geom_text(aes(x=7, y=900), size=4, hjust=0, vjust=0.5, label="Low intensity")
+  geom_text(aes(x=7, y=1000), size=4.6, hjust=0, vjust=0.5, label="High intensity") +
+  geom_text(aes(x=7, y=950), size=4.6, hjust=0, vjust=0.5, label="Medium intensity") +
+  geom_text(aes(x=7, y=900), size=4.6, hjust=0, vjust=0.5, label="Low intensity")+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 left_col <- plot_grid(fig4a, labels = c("A"))
 right_col <- plot_grid(fig4b, fig4c, fig4d, nrow = 3, labels = c("B", "C", "D"))
@@ -538,7 +697,14 @@ figure4 <- plot_grid(left_col, right_col, ncol = 2)
 figure4
 ```
 
-#### Rt estimation using EpiEstim
+![](README_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
+
+``` r
+# ggsave("plots/Rt_stoch_recovered_20230619.png", plot=figure4,
+#        width=3.4*2, height=2.7*2, units="in")
+```
+
+### Rt estimation using EpiEstim
 
 Computing mean and std of generation time
 
@@ -561,17 +727,26 @@ mean_int <- integrate(function(y) y*fz(y), lower = 0, upper = 100, subdivisions 
 var_int <- integrate(function(y) y^2*fz(y), lower = 0, upper = 100, subdivisions = 1e4)
 var <- var_int$value - mean_int$value^2  # variance = E[x^2] - E[X]^2
 mean_int$value
-sqrt(var)
+```
 
+    ## [1] 6.249147
+
+``` r
+sqrt(var)
+```
+
+    ## [1] 4.145278
+
+``` r
 # from Mathematica
 mean <- 6.25 # mean_si
 std <- 4.14578 # std_si
 ```
 
-#### Apply EpiEstim on daily confirmation series (also generated Figure 5)
+### Apply EpiEstim on daily confirmation series
 
 Expect discrepancy (i.e., delay) between the pre-defined Rt and the
-estimated Rt)
+estimated Rt) \#### Figure 5
 
 ``` r
 # Moving average
@@ -599,8 +774,9 @@ time_window <- 1
 t_start <- seq(3, T-(time_window-1))
 t_end <- t_start + time_window-1
 
-res_daily <- estimate_R(ma, method = "parametric_si",
+res_daily <- estimate_R(ma_input, method = "parametric_si",
                         config = make_config((list(t_start = t_start, t_end = t_end, mean_si = 6.25, std_si = 4.14578))))
+
 df_epi_ode_conf <- data.frame(sapply(res_daily$R,c))
 df_epi_ode_conf$Rt <- dat$ode$daily_Rt[3:201]
 df_epi_ode_conf$time <- t_start-1
@@ -615,11 +791,22 @@ figure5 <-
   geom_line(aes(y = Median.R.), color = "darkblue", size = 1.2) +
   geom_line(aes(x = time, y = Rt), colour = "black", size = 1, linetype = "dashed") +
   geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
-  labs(y = expression(italic(R)[italic(t)]), x = "Time (day)")
+  labs(y = expression(italic(R)[italic(t)]), x = "Time (day)")+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
+
 figure5
 ```
 
-#### Introduce a delay distribution to address the delay observed above (for deconvolutions)
+![](README_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
+
+``` r
+# ggsave("plots/EpiEstim_Rt_delay_20230619.png", plot=figure5,
+#        width=3.4*2, height=2.7, units="in")
+```
+
+# Introduce a delay distribution to address the delay observed above (for deconvolutions)
 
 ``` r
 delay_dist <- {
@@ -630,10 +817,12 @@ delay_dist <- {
 }
 ```
 
-#### Rt based on renewal equation (without misspecification effect of SI)
+### Rt based on renewal equation (without misspecification effect of SI)
+
+#### Figure 6
 
 Estimate Rt by applying deconvolution on confimration series, followed
-by EpiEstim (also generates Figure 6)
+by EpiEstim
 
 ``` r
 # apply on the stochastic seed #19 (fig 6a)
@@ -668,6 +857,11 @@ unobs <- result$x_unobs
 # determine an appropriate lag value by comparing the peaks
 plot(unobs)
 lines(dat$ode$daily_infected)
+```
+
+![](README_files/figure-gfm/unnamed-chunk-30-1.png)<!-- -->
+
+``` r
 lag <- which.max(dat$ode$daily_infected) - which.max(unobs)
 #lag
 # adjust the inferred infection (i.e., unobs)
@@ -683,13 +877,23 @@ t_end <- t_start + time_window-1
 
 res_daily <- estimate_R(unobs, method = "parametric_si",
                             config = make_config((list(t_start = t_start, t_end = t_end, mean_si = 6.25, std_si = 4.14578))))
+```
+
+    ## Warning in estimate_R_func(incid = incid, method = method, si_sample = si_sample, : You're estimating R too early in the epidemic to get the desired
+    ##             posterior CV.
+
+``` r
 # used the mean and std of generation time above for mean_si and std_si
 
 df_epi_19 <- data.frame(sapply(res_daily$R,c))
 df_epi_19 <- rbind(df_epi_19, c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA))
+```
+
+
+``` r
 df_epi_19$time <- dat$time[3:201]
 df_epi_19$Rt <- dat$ode$daily_Rt[3:201]
-df_deconv$sto_per_high <- df_epi_19$Median.R.
+# df_deconv$sto_per_high <- df_epi_19$Median.R.
 
 plt_epi_19 <- 
   ggplot(df_epi_19[80:199,], aes(x = time)) +
@@ -699,7 +903,11 @@ plt_epi_19 <-
   geom_line(aes(x = time, y = Rt), colour = "black", size = 1, linetype = "dashed") +
   geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
       labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") +
-    coord_cartesian(ylim = c(0.5, 2))+scale_y_continuous(breaks=seq(0,2,by=0.5))
+    coord_cartesian(ylim = c(0.5, 2))+
+  scale_y_continuous(breaks=seq(0,2,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 # apply on the stochastic seed #4 (fig 6b)
 input_ts <- dat$stoch_perfect_obs$daily_confirmed[,4]
@@ -739,9 +947,12 @@ res_daily <- estimate_R(unobs, method = "parametric_si",
 # graph
 df_epi_4 <- data.frame(sapply(res_daily$R,c))
 df_epi_4 <- rbind(df_epi_4, c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA))
+```
+
+``` r
 df_epi_4$time <- dat$time[3:201]
 df_epi_4$Rt <- dat$ode$daily_Rt[3:201]
-df_deconv$sto_per_high <- df_epi_4$Median.R.
+# df_deconv$sto_per_high <- df_epi_4$Median.R.
 
 plt_epi_4 <- 
   ggplot(df_epi_4[80:199,], aes(x = time)) +
@@ -751,7 +962,11 @@ plt_epi_4 <-
   geom_line(aes(x = time, y = Rt), colour = "black", size = 1, linetype = "dashed") +
   geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
       labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") +
-    coord_cartesian(ylim = c(0.5, 2))+scale_y_continuous(breaks=seq(0,2,by=0.5))
+    coord_cartesian(ylim = c(0.5, 2))+
+  scale_y_continuous(breaks=seq(0,2,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 # apply on the stochastic seed #2 (fig 6c)
 input_ts <- dat$stoch_perfect_obs$daily_confirmed[,2]
@@ -788,12 +1003,20 @@ t_end <- t_start + time_window-1
 
 res_daily <- estimate_R(unobs, method = "parametric_si",
                             config = make_config((list(t_start = t_start, t_end = t_end, mean_si = 6.25, std_si = 4.14578))))
+```
 
+
+
+``` r
 df_epi_2 <- data.frame(sapply(res_daily$R,c))
 df_epi_2 <- rbind(df_epi_2, c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA))
+```
+
+
+``` r
 df_epi_2$time <- dat$time[3:201]
 df_epi_2$Rt <- dat$ode$daily_Rt[3:201]
-df_deconv$sto_per_high <- df_epi_2$Median.R.
+# df_deconv$sto_per_high <- df_epi_2$Median.R.
 
 plt_epi_2 <- 
   ggplot(df_epi_2[80:199,], aes(x = time)) +
@@ -803,16 +1026,32 @@ plt_epi_2 <-
   geom_line(aes(x = time, y = Rt), colour = "black", size = 1, linetype = "dashed") +
   geom_hline(yintercept = 1, color = "darkblue", size = 1, linetype = "dotted")+
   labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") +
-  coord_cartesian(ylim = c(0.5, 2))+scale_y_continuous(breaks=seq(0,2,by=0.5))
+  coord_cartesian(ylim = c(0.5, 2))+
+  scale_y_continuous(breaks=seq(0,2,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 figure6 <- plot_grid(plt_epi_19, plt_epi_4, plt_epi_2, nrow = 3, labels = c("A", "B", "C"))
+```
+
+``` r
 figure6
 ```
 
-#### Rt based on renewal equation (with misspecification effect of SI)
+![](README_files/figure-gfm/unnamed-chunk-30-2.png)<!-- -->
+
+``` r
+# ggsave("plots/EpiEstim_Rt_deconvolution_20230619.png", plot=figure6,
+#        width=3.4*2, height=2.7*2, units="in")
+```
+
+### Rt based on renewal equation (with misspecification effect of SI)
+
+#### Figure 7
 
 Estimate Rt by applying deconvolution on confimration series, followed
-by EpiEstim (also generates Figure 7)
+by EpiEstim
 
 ``` r
 # apply on the stochastic seed #19 (fig 7a)
@@ -851,13 +1090,21 @@ t_end <- t_start + time_window-1
 
 res_daily <- estimate_R(unobs, method = "parametric_si",
                             config = make_config((list(t_start = t_start, t_end = t_end, mean_si = 5, std_si = 4.14578))))
+```
+
+
+``` r
 # misspecification effect: used mean_si=5, istead of 6.25
 
 df_epi_19m <- data.frame(sapply(res_daily$R,c))
 df_epi_19m <- rbind(df_epi_19m, c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA))
+```
+
+
+``` r
 df_epi_19m$time <- dat$time[3:201]
 df_epi_19m$Rt <- dat$ode$daily_Rt[3:201]
-df_deconv$mis_sto_per_low <- df_epi_2m$Median.R.
+# df_deconv$mis_sto_per_low <- df_epi_2m$Median.R.
 
 plt_epi_19m <- 
   ggplot(df_epi_19m[80:199,], aes(x = time)) +
@@ -866,7 +1113,10 @@ plt_epi_19m <-
   geom_line(aes(y = Median.R.), color = "darkred", size = 1.2) +
   geom_line(aes(x = time, y = Rt), colour = "black", size = 1, linetype = "dashed") +
   geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
-      labs(y = expression(italic(R)[italic(t)]), x = "Time (day)")
+      labs(y = expression(italic(R)[italic(t)]), x = "Time (day)")+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 # apply on the stochastic seed #4 (fig 7b)
 input_ts <- dat$stoch_perfect_obs$daily_confirmed[,4]
@@ -902,14 +1152,19 @@ time_window <- 1
 t_start <- seq(3, T-(time_window-1))
 t_end <- t_start + time_window-1
 
-res_daily <- estimate_R(unobs, method = "parametric_si",
-                            config = make_config((list(t_start = t_start, t_end = t_end, mean_si = 5, std_si = 4.14578))))
+res_daily <- 
+  estimate_R(unobs, method = "parametric_si",
+             config = make_config((list(t_start = t_start, t_end = t_end, mean_si = 5, std_si = 4.14578))))
 
 df_epi_4m <- data.frame(sapply(res_daily$R,c))
 df_epi_4m <- rbind(df_epi_4m, c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA))
+```
+
+
+``` r
 df_epi_4m$time <- dat$time[3:201]
 df_epi_4m$Rt <- dat$ode$daily_Rt[3:201]
-df_deconv$mis_sto_per_low <- df_epi_2m$Median.R.
+# df_deconv$mis_sto_per_low <- df_epi_2m$Median.R.
 
 plt_epi_4m <- 
   ggplot(df_epi_4m[80:199,], aes(x = time)) +
@@ -918,7 +1173,10 @@ plt_epi_4m <-
   geom_line(aes(y = Median.R.), color = "darkgreen", size = 1.2) +
   geom_line(aes(x = time, y = Rt), colour = "black", size = 1, linetype = "dashed") +
   geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
-      labs(y = expression(italic(R)[italic(t)]), x = "Time (day)")
+      labs(y = expression(italic(R)[italic(t)]), x = "Time (day)")+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 # apply on the stochastic seed #2 (fig 7c)
 input_ts <- dat$stoch_perfect_obs$daily_confirmed[,2]
@@ -955,12 +1213,21 @@ t_end <- t_start + time_window-1
 
 res_daily <- estimate_R(unobs, method = "parametric_si",
                             config = make_config((list(t_start = t_start, t_end = t_end, mean_si = 5, std_si = 4.14578))))
+```
 
+
+
+``` r
 df_epi_2m <- data.frame(sapply(res_daily$R,c))
 df_epi_2m <- rbind(df_epi_2m, c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA), c(NA,NA,NA,NA,NA))
+```
+
+
+
+``` r
 df_epi_2m$time <- dat$time[3:201]
 df_epi_2m$Rt <- dat$ode$daily_Rt[3:201]
-df_deconv$mis_sto_per_low <- df_epi_2m$Median.R.
+# df_deconv$mis_sto_per_low <- df_epi_2m$Median.R.
 
 plt_epi_2m <- 
   ggplot(df_epi_2m[80:199,], aes(x = time)) +
@@ -969,15 +1236,33 @@ plt_epi_2m <-
   geom_line(aes(y = Median.R.), color = "darkblue", size = 1) +
   geom_line(aes(x = time, y = Rt), colour = "black", size = 1, linetype = "dashed") +
   geom_hline(yintercept = 1, color = "darkblue", size = 1, linetype = "dotted")+
-  labs(y = expression(italic(R)[italic(t)]), x = "Time (day)")
+  labs(y = expression(italic(R)[italic(t)]), x = "Time (day)")+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 figure7 <- plot_grid(plt_epi_19m, plt_epi_4m, plt_epi_2m, nrow = 3, labels = c("a", "b", "c"))
+```
+
+
+
+``` r
 figure7
+```
+
+![](README_files/figure-gfm/unnamed-chunk-31-1.png)<!-- -->
+
+``` r
+# ggsave("plots/EpiEstim_stoch_Rt_deconvolution_20230619.png", plot=figure7,
+#        width=3.4*2, height=2.7*2, units="in")
 ```
 
 ### Performance comarison between partifle filtering and renewal equation-based estimations
 
-#### Plot for the curve of pre-defined Rt by periods of different epidemic characteristics (Figure 8)
+#### Figure 8
+
+Plot for the curve of pre-defined Rt by periods of different epidemic
+characteristics
 
 ``` r
 R_flat <- c(dat$Rt[1:101], rep(NA,32), dat$Rt[134:195], rep(NA, 6))
@@ -985,17 +1270,37 @@ R_curve <- c(rep(NA, 100), dat$Rt[101:127], rep(NA, 74))
 R_curve_last <- c(rep(NA, 126), dat$Rt[127:134], rep(NA, 67))
 R_last <- c(rep(NA, 194), dat$Rt[195:201])
 
-figure8 <- ggplot()+geom_line(aes(x=dat$time,y=R_flat), color = "black", size = 0.5)+geom_line(aes(x=dat$time,y=R_curve), color="red", size = 0.5)+geom_line(aes(x=dat$time,y=R_curve_last), linetype = "dotted", size = 0.5, color="red")+geom_line(aes(x=dat$time,y=R_last), linetype = "dotted", size = 0.5)+labs(x=dat$time,y = expression(italic(R)[italic(t)]), x = "Time (day)")
+figure8 <- ggplot()+
+  geom_line(aes(x=dat$time, y=R_flat), color="black", linewidth=1.2)+
+  geom_line(aes(x=dat$time, y=R_curve), color="red", linewidth=1.2)+
+  geom_line(aes(x=dat$time, y=R_curve_last), linetype="dotted", color="red", linewidth=1.2)+
+  geom_line(aes(x=dat$time, y=R_last), linetype="dotted", linewidth=1.2)+
+  labs(y=expression(italic(R)[italic(t)]), x="Time (day)")+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 figure8
 ```
 
-#### Extra simulaions to terminate estimation on the last day of the dynamic period (i.e., day = 132) (also generates Figure 9)
+
+
+![](README_files/figure-gfm/unnamed-chunk-32-1.png)<!-- -->
+
+``` r
+# ggsave("plots/Rt_sections_20230619.png", plot=figure8,
+#        width=3.4*2, height=2.7*2, units="in")
+```
+
+### Extra simulaions to terminate estimation on the last day of the dynamic period (i.e., day = 132)
 
 ``` r
 input_ts <- dat$stoch_perfect_obs$daily_confirmed[,4][1:133]
 # PF
 d_stoc_04_mid <- data.frame(date = dat$time[1:133],
                daily_confirmed = round(dat$stoch_perfect_obs$daily_confirmed[,4][1:133]))
+```
+
+``` r
 set.seed(42)
 cl <- makeCluster(getOption("cl.cores", 2))
 doParallel::registerDoParallel(cl)
@@ -1014,10 +1319,15 @@ pf_stoc_04_mid <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = 
                     stoch = FALSE)
 }
 parallel::stopCluster(cl)
-  
+# saveRDS(pf_stoc_04_mid, "outputs/pf_stoc_04_mid_20230619.rds")   
+```
+
+#### Figure 9
+
+``` r
+pf_stoc_04_mid <- readRDS("outputs/pf_stoc_04_mid_20230619.rds")  
 parset_chr <- paste0("confirmation", "_I0=", params$I0, "_npart=", npart,
            "_nrep=", nrep, "_dt=", dt, "_", tstamp)
-# saveRDS(pf, paste0("outputs/pf_", parset_chr, ".rds"))
   
 pr <- c(0.025, 0.25, 0.5, 0.75, 0.975)
 Rt_est <- as.data.frame(sapply(pf_stoc_04_mid, function(x) x[, "Rt"]))
@@ -1035,7 +1345,10 @@ fig9a <- ggplot(df_stoc_04_mid[81:133,], aes(x = date)) +
     geom_line(aes(x = date, y = df_stoc_04_mid$Rt[80:132]), size = 1, linetype = "dashed") +
     geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
     labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") + 
-    coord_cartesian(ylim = c(0.25, 2.75))+scale_y_continuous(breaks=seq(0,2.75,by=0.5))
+    coord_cartesian(ylim = c(0.25, 2.75))+scale_y_continuous(breaks=seq(0,2.75,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 # EpiEstim
 ma <- seq(0, length(input_ts)-1)
@@ -1072,11 +1385,18 @@ t_end <- t_start + time_window-1
 # res_daily_m: with misspecification of SI
 res_daily <- estimate_R(unobs, method = "parametric_si",
                             config = make_config((list(t_start = t_start, t_end = t_end, mean_si = 6.25, std_si = 4.14578))))
+```
+
+ 
+``` r
 res_daily_m <- estimate_R(unobs, method = "parametric_si",
                             config = make_config((list(t_start = t_start, t_end = t_end, mean_si = 5, std_si = 4.14578))))
+```
 
-df_epi_4_mid <- data.frame(sapply(res_daily$R,c))
-df_epi_4_mid_m <- data.frame(sapply(res_daily_m$R,c))
+
+``` r
+df_epi_4_mid <- data.frame(sapply(res_daily$R, c))
+df_epi_4_mid_m <- data.frame(sapply(res_daily_m$R, c))
 
 df_epi_4_mid <- df_epi_4_mid[,c(5,7,8,9,11)]
 df_epi_4_mid_m <- df_epi_4_mid_m[,c(5,7,8,9,11)]
@@ -1098,7 +1418,11 @@ fig9b <-
   geom_line(aes(y = Rt), colour = "black", size = 1, linetype = "dashed") +
   geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
       labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") +
-  coord_cartesian(ylim = c(0.25, 2.75))+scale_y_continuous(breaks=seq(0,2.75,by=0.5))
+  coord_cartesian(ylim = c(0.25, 2.75))+
+  scale_y_continuous(breaks=seq(0,2.75,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
 # fig9c
 fig9c <- 
@@ -1109,13 +1433,29 @@ fig9c <-
   geom_line(aes(y = Rt), colour = "black", size = 1, linetype = "dashed") +
   geom_hline(yintercept = 1, color = "black", size = 1, linetype = "dotted")+
       labs(y = expression(italic(R)[italic(t)]), x = "Time (day)") +
-  coord_cartesian(ylim = c(0.25, 2.75))+scale_y_continuous(breaks=seq(0,2.75,by=0.5))
+  coord_cartesian(ylim = c(0.25, 2.75))+
+  scale_y_continuous(breaks=seq(0,2.75,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13))
 
-figure9 <- plot_grid(fig9a, fig9b, fig9c, nrow = 3, labels = c("A", "B", "C"))
+figure9 <- plot_grid(fig9a, fig9b, fig9c, nrow=3, labels=c("A", "B", "C"))
+```
+
+
+
+``` r
 figure9
 ```
 
-#### Calculate RMSE between the pre-defined Rt and estimated Rt’s (for Table 2)
+![](README_files/figure-gfm/unnamed-chunk-35-1.png)<!-- -->
+
+``` r
+# ggsave("plots/Rt_PF_EpiEstim_20230619.png", plot=figure9,
+#        width=3.4*2, height=2.7*2, units="in")
+```
+
+### Calculate RMSE between the pre-defined Rt and estimated Rt’s (for Table 2)
 
 ``` r
 dg <- df_stoc_04[82:201,]
