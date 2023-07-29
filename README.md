@@ -18,50 +18,10 @@ library(pfilterCOVID)
 # library(magrittr)
 library(deSolve)
 library(tidyverse)
-```
-
-    ## ── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
-    ## ✔ dplyr     1.1.2     ✔ readr     2.1.4
-    ## ✔ forcats   1.0.0     ✔ stringr   1.5.0
-    ## ✔ ggplot2   3.4.2     ✔ tibble    3.2.1
-    ## ✔ lubridate 1.9.2     ✔ tidyr     1.3.0
-    ## ✔ purrr     1.0.1     
-    ## ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
-    ## ✖ dplyr::filter() masks stats::filter()
-    ## ✖ dplyr::lag()    masks stats::lag()
-    ## ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
-
-``` r
 library(cowplot)
-```
-
-    ## 
-    ## Attaching package: 'cowplot'
-    ## 
-    ## The following object is masked from 'package:lubridate':
-    ## 
-    ##     stamp
-
-``` r
 library(EpiEstim)
 library(foreach)
-```
-
-    ## 
-    ## Attaching package: 'foreach'
-    ## 
-    ## The following objects are masked from 'package:purrr':
-    ## 
-    ##     accumulate, when
-
-``` r
 library(doParallel)
-```
-
-    ## Loading required package: iterators
-    ## Loading required package: parallel
-
-``` r
 source('R/deconvolve.R')
 theme_set(theme_bw())
 ```
@@ -79,13 +39,6 @@ THETA$Y0 <- c(S = 1e7 - THETA$I0, E = 0, P = 0, A = 0,
               I = THETA$I0, R = 0, CE = 0, CI = 10, CR = 0)
 THETA$tend <- 200
 usethis::use_data(THETA, overwrite = TRUE)
-```
-
-    ## ✔ Setting active project to 'G:/My Drive/Projects/pfilterCOVID'
-    ## ✔ Saving 'THETA' to 'data/THETA.rda'
-    ## • Document your data (see 'https://r-pkgs.org/data.html')
-
-``` r
 params <- THETA
 ```
 
@@ -1672,23 +1625,12 @@ parallel::stopCluster(cl)
 
 Generate Figure 11 (supplmentary figure) Red and green vertical lines
 represent strengthening and weakening of the social distancing measures.
+\### Figure 11
 
 ``` r
 dtype <- "confirmation"
 tstamp <- format(Sys.Date(), "%Y%m%d")
 data <- read_csv("data/daily_confirmed_202009_202110.csv")
-```
-
-    ## Rows: 303 Columns: 2
-    ## ── Column specification ────────────────────────────────────────────────────────
-    ## Delimiter: ","
-    ## dbl  (1): daily_confirmed
-    ## date (1): date
-    ## 
-    ## ℹ Use `spec()` to retrieve the full column specification for this data.
-    ## ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
-
-``` r
 pf_korea <- readRDS("outputs/pf_conf_covid_korea_20230729.rds")
 parset_chr <- paste0(dtype, "_I0=", params$I0, "_npart=", npart,
            "_nrep=", nrep, "_dt=", dt, "_", tstamp)
@@ -1760,3 +1702,8 @@ figure11
 ```
 
 ![](README_files/figure-gfm/unnamed-chunk-37-1.png)<!-- -->
+
+``` r
+# ggsave("plots/Rt_confimed_case_korea_20230730.png", plot=figure11,
+# width=3.4*2, height=2.7*3, units="in")
+```
