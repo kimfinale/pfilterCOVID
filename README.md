@@ -44,9 +44,26 @@ library(cowplot)
 
 ``` r
 library(EpiEstim)
-# library(dplyr)
-# library(rstan)
+library(foreach)
+```
+
+    ## 
+    ## Attaching package: 'foreach'
+    ## 
+    ## The following objects are masked from 'package:purrr':
+    ## 
+    ##     accumulate, when
+
+``` r
+library(doParallel)
+```
+
+    ## Loading required package: iterators
+    ## Loading required package: parallel
+
+``` r
 source('R/deconvolve.R')
+theme_set(theme_bw())
 ```
 
 ### Set parameter values
@@ -68,11 +85,13 @@ usethis::use_data(THETA, overwrite = TRUE)
     ## ✔ Saving 'THETA' to 'data/THETA.rda'
     ## • Document your data (see 'https://r-pkgs.org/data.html')
 
+``` r
+params <- THETA
+```
+
 ### Run the ODE version (generate the dataset, D1, and Figure 2A)
 
 ``` r
-theme_set(theme_bw())
-
 params <- THETA
 tend <- params$tend
 
@@ -129,10 +148,8 @@ fig2a <- out_long %>%
         axis.text = element_text(size=13),
         legend.text=element_text(size=13))
   
-fig2a
+# fig2a
 ```
-
-![](README_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
 ### Plots of Rt and infection/confirmation time series of stoch outputs
 
@@ -199,7 +216,9 @@ res <- gillespie_run(func = gillespie_sepair,
 
 ``` r
 res <- readRDS("outputs/res_20230619.rds")
-nrun <- 20 
+nrun <- 20
+tend <- params$tend
+
 daily_infected <- data.frame(matrix(0, nrow = tend + 1, ncol = nrun))
 daily_symptom <- data.frame(matrix(0, nrow = tend + 1, ncol = nrun))
 daily_confirmed <- data.frame(matrix(0, nrow = tend + 1, ncol = nrun))
@@ -357,8 +376,6 @@ also executes backward sampling
 
 ``` r
 # apply on infection time series
-theme_set(theme_bw())
-
 tstamp <- "20220105"
 dat <- readRDS(paste0("outputs/Rt_dataset_I0=100_", tstamp, ".rds"))
 params <- dat$params
@@ -371,20 +388,7 @@ npart <- 1e4
 dt <- 0.2
 library(parallel)
 library(doParallel)
-```
 
-    ## Loading required package: foreach
-
-    ## 
-    ## Attaching package: 'foreach'
-
-    ## The following objects are masked from 'package:purrr':
-    ## 
-    ##     accumulate, when
-
-    ## Loading required package: iterators
-
-``` r
 ncores <- detectCores() - 1
 d_inf <- data.frame(date = dat$time, daily_infected = round(dat$ode$daily_infected))
 set.seed(42)
@@ -406,7 +410,7 @@ pf_inf <- foreach(i = 1:nrep, .packages = c("pfilterCOVID"), .inorder = F) %dopa
                     error_pdf = "pois",
                     negbin_size = 15,
                     backward_sampling = TRUE,
-                    stoch = FALSE)
+                    stoch = FALSE) 
 }
 parallel::stopCluster(cl)
 # saveRDS(pf_inf, "outputs/pf_inf_20230619.rds")
@@ -913,13 +917,8 @@ unobs <- result$x_unobs
 
 # simple plots for the output of deconvolution (i.e., inferred infection), and the infection from the ODE model
 # determine an appropriate lag value by comparing the peaks
-plot(unobs)
-lines(dat$ode$daily_infected)
-```
-
-![](README_files/figure-gfm/unnamed-chunk-29-1.png)<!-- -->
-
-``` r
+# plot(unobs)
+# lines(dat$ode$daily_infected)
 lag <- which.max(dat$ode$daily_infected) - which.max(unobs)
 #lag
 # adjust the inferred infection (i.e., unobs)
@@ -1137,7 +1136,7 @@ figure7 <- plot_grid(plt_epi_19, plt_epi_4, plt_epi_2, nrow = 3, labels = c("A",
 figure7
 ```
 
-![](README_files/figure-gfm/unnamed-chunk-29-2.png)<!-- -->
+![](README_files/figure-gfm/unnamed-chunk-29-1.png)<!-- -->
 
 ``` r
 # ggsave("plots/EpiEstim_Rt_deconvolution_20230619.png", plot=figure6,
@@ -1637,3 +1636,127 @@ last_fluctuaion <- list("PF" = sqrt(mean((dat$ode$daily_Rt[127:133] - df_stoc_04
 # RMSE table (in the order of PF, EpiEstim,and EpiEstim with misspecification)
 table2 <- list("general period" = general_period, "flat period" = flat_period, "last 1 week flat" = last_flat, "fluctuation period" = fluctuation, "last 1 week fluctuation" = last_fluctuaion)
 ```
+
+### Rt for COVID-19 in Korea during 1 Sep 2020 - 31 Oct 2021
+
+``` r
+set.seed(42)
+cl <- makeCluster(getOption("cl.cores", detectCores()))
+registerDoParallel(cl)
+nrep <- 1000
+npart <- 10000
+params[["betavol"]] <- 0.20
+y0 <- params$Y0
+y0["I"] <- 100
+y0["E"] <- 100
+data <- read_csv("data/daily_confirmed_202009_202110.csv")
+# data <- data[order(data$date),]
+# write_csv(data, "data/daily_confirmed_202009_202110.csv")
+# data$date <- 0:(nrow(data)-1)
+pf_conf <- foreach(i=1:nrep, .packages=c("pfilterCOVID"), .inorder=F) %dopar% {
+ extract_trace(params = params,
+                    y = y0,
+                    data = data,
+                    data_type = "confirmation",
+                    npart = npart,
+                    tend = nrow(data),
+                    dt = 0.1,
+                    error_pdf = "negbin",
+                    negbin_size = 100,
+                    backward_sampling = TRUE,
+                    stoch = FALSE)
+}
+parallel::stopCluster(cl)
+# saveRDS(pf_conf, "outputs/pf_conf_covid_korea_20230729.rds")
+```
+
+Generate Figure 11 (supplmentary figure) Red and green vertical lines
+represent strengthening and weakening of the social distancing measures.
+
+``` r
+dtype <- "confirmation"
+tstamp <- format(Sys.Date(), "%Y%m%d")
+data <- read_csv("data/daily_confirmed_202009_202110.csv")
+```
+
+    ## Rows: 303 Columns: 2
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## Delimiter: ","
+    ## dbl  (1): daily_confirmed
+    ## date (1): date
+    ## 
+    ## ℹ Use `spec()` to retrieve the full column specification for this data.
+    ## ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+
+``` r
+pf_korea <- readRDS("outputs/pf_conf_covid_korea_20230729.rds")
+parset_chr <- paste0(dtype, "_I0=", params$I0, "_npart=", npart,
+           "_nrep=", nrep, "_dt=", dt, "_", tstamp)
+  
+pr <- c(0.025, 0.25, 0.5, 0.75, 0.975)
+Rt_est <- as.data.frame(sapply(pf_korea, function(x) x[, "Rt"]))
+Rt_quantile <- as.data.frame(t(apply(Rt_est, 1, function(x) quantile(x, pr))))
+  
+cumul_est <- as.data.frame(sapply(pf_korea, function(x) x[, "CR"]))
+cumul_quantile <- as.data.frame(t(apply(cumul_est, 1, function(x) quantile(x, pr))))
+
+Rtdf <- cbind(Rt_quantile, data)
+Rtdf$date <- data$date 
+
+cumuldf <- cbind(cumul_quantile, data)
+cumuldf$date <- data$date 
+
+npi_data <- data.frame(date=as.Date(c("2020-10-11", "2021-03-12", "2021-06-11",
+"2020-11-17", "2020-11-22", "2020-12-05", "2020-12-08", "2020-12-21")),
+degree = c("Low","Low","Low","High","High","High","High","High"))
+
+npi_high <- npi_data %>% filter(degree=="High")
+npi_low <- npi_data %>% filter(degree=="Low")
+# Rt
+fig11a <- ggplot(Rtdf, aes(x = date)) +
+  geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`), fill = "steelblue", alpha = 0.5) +
+  geom_ribbon(aes(ymin = `25%`, ymax = `75%`), fill = "steelblue", alpha = 0.8) +
+  geom_line(aes(y = `50%`), color = "steelblue", size = 1.2) +
+  geom_hline(yintercept = 1, color = "black", size = 1, linetype="dotted")+
+  geom_vline(xintercept=npi_high$date, color="firebrick", size=1)+
+  geom_vline(xintercept=npi_low$date, color="darkgreen", size=1)+
+  labs(y = expression(italic(R)[italic(t)]), x="") + 
+    scale_x_date(limits=as.Date(c("2020-10-01","2021-06-30")), date_breaks = "2 week")+
+  scale_y_continuous(limits=c(0,3),breaks=seq(0,3,by=0.5))+
+  theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13), 
+        axis.text.x=element_text(angle=90,hjust=1))
+# fig11a
+
+fig11b <- ggplot(cumuldf) +
+    geom_col(aes(x=date, y=daily_confirmed), fill="grey50", alpha=0.3) +
+    geom_ribbon(aes(x=date, ymin=`2.5%`, ymax=`97.5%`),
+                fill="steelblue", alpha=0.3) +
+    geom_ribbon(aes(x = date, ymin = `25%`, ymax=`75%`),
+                fill="steelblue", alpha=0.7) +
+    geom_line(aes(x=date, y=`50%`), color="steelblue", size=1)+
+    # scale_y_continuous(limits=c(0,2000),breaks=seq(0,1000,by=200))+
+    labs(title = "", x = "", y = "Daily confirmed case") +
+    scale_x_date(limits=as.Date(c("2020-10-01","2021-06-30")), date_breaks = "2 week")+
+    theme(text = element_text(size=16),
+        axis.text = element_text(size=13),
+        legend.text=element_text(size=13), 
+        axis.text.x=element_text(angle=90,hjust=1))
+# fig11b
+figure11 <- plot_grid(fig11a, fig11b, nrow=2, labels="AUTO")
+```
+
+    ## Warning: Removed 30 rows containing missing values (`geom_line()`).
+
+    ## Warning: Removed 30 rows containing missing values (`position_stack()`).
+
+    ## Warning: Removed 2 rows containing missing values (`geom_col()`).
+
+    ## Warning: Removed 30 rows containing missing values (`geom_line()`).
+
+``` r
+figure11
+```
+
+![](README_files/figure-gfm/unnamed-chunk-37-1.png)<!-- -->
