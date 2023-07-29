@@ -384,12 +384,7 @@ fig4a <- ggplot(df_inf[81:201,], aes(x = date)) +
   theme(text = element_text(size=16),
         axis.text = element_text(size=13),
         legend.text=element_text(size=13))
-fig4a
-```
-
-![](README_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
-
-``` r
+# fig4a
 # ggsave(paste0("plots/", parset_chr, ".png"), plt)
 ```
 
@@ -530,10 +525,8 @@ fig5b <- ggplot(df_stoc_19[81:201,], aes(x = date)) +
   theme(text = element_text(size=16),
         axis.text = element_text(size=13),
         legend.text=element_text(size=13))
-fig5b
+# fig5b
 ```
-
-![](README_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->
 
 #### PF based on the confirmation time series derived from the stochastic model
 
@@ -591,10 +584,8 @@ fig5c <- ggplot(df_stoc_04[81:201,], aes(x = date)) +
   theme(text = element_text(size=16),
         axis.text = element_text(size=13),
         legend.text=element_text(size=13))
-fig5c
+# fig5c
 ```
-
-![](README_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
 
 #### PF based on the confirmation time series dervied from the stochastic model
 
@@ -656,12 +647,8 @@ fig5d <- ggplot(df_stoc_02[81:201,], aes(x = date)) +
   theme(text = element_text(size=16),
         axis.text = element_text(size=13),
         legend.text=element_text(size=13))
-fig5d
-```
+# fig5d
 
-![](README_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
-
-``` r
 # Generate figure 5
 df_stoc <- data.frame(date=dat$ode$time, ode=dat$ode$daily_confirmed, c2=dat$stoch_perfect_obs$daily_confirmed[,2], c4=dat$stoch_perfect_obs$daily_confirmed[,4], c19=dat$stoch_perfect_obs$daily_confirmed[,19])
 
@@ -680,19 +667,15 @@ fig5a <- ggplot(df_stoc) + geom_line(aes(x=date, y=ode), linewidth=1, color="bla
   theme(text = element_text(size=16),
         axis.text = element_text(size=13),
         legend.text=element_text(size=13))
-fig5a
-```
+# fig5a
 
-![](README_files/figure-gfm/unnamed-chunk-25-2.png)<!-- -->
-
-``` r
 left_col <- plot_grid(fig5a, labels = c("A"))
 right_col <- plot_grid(fig5b, fig5c, fig5d, nrow = 3, labels = c("B", "C", "D"))
 figure5 <- plot_grid(left_col, right_col, ncol = 2)
 figure5
 ```
 
-![](README_files/figure-gfm/unnamed-chunk-25-3.png)<!-- -->
+![](README_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
 
 ``` r
 # ggsave("plots/Rt_stoch_recovered_20230619.png", plot=figure4,
