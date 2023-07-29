@@ -1,0 +1,97 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+
+### Selection of stochastic time series
+```{r}
+# Rt data set; Rt_dataset_I0=100_20220105.rds, Rt_dataset_I0=10_20220105.rds
+tstamp <- "20220105"
+dat <- readRDS(paste0("outputs/Rt_dataset_I0=100_", tstamp, ".rds"))
+
+library(ggplot2)
+library(tidyverse)
+oderes <- dat$ode[, c("time", "daily_infected", "daily_confirmed")]
+oderes %>% pivot_longer(cols = -time) -> oderes
+
+stochres <- dat$stoch_perfect_obs$daily_confirmed[, 1:20]
+stochres$time <- dat$time
+
+stochres %>% pivot_longer(cols = -time) -> stochres
+
+plt <- ggplot() +
+  geom_line(data = stochres, aes(time, value, group=name), color="grey50") +
+  geom_line(data = oderes, aes(time, value, color=name), size=1.2) + 
+  labs(x="time", y="", color="")
+
+plt   
+# ggsave("plots/daily_case.png", plt)
+
+plot(dat$ode$time, dat$ode$daily_confirmed, type = "l", ylim = c(0, 1000))
+stochid_I0_100 <- c(2, 4, 19)
+stochid_I0_10 <- c(5, 12, 17)
+for (i in stochid_I0_100) {
+  cat("i = ", i, "\n")
+  lines(0:200, dat$stoch_perfect_obs$daily_confirmed[,i])
+  # text(1:200, dat$stoch_perfect_obs$daily_infected[,1], label = i)
+  readline(prompt="Press [enter] to continue")
+}
+# 2, 4, 19 selected to represent low, medium, and high incidence for I0=100
+# 5, 12, 17 selected to represent low, medium, and high incidence for I0=10
+```
+
+### Selection of imperfect observation of confirmed cases
+```{r}
+# Rt data set; Rt_dataset_I0=100_20220105.rds, Rt_dataset_I0=10_20220105.rds
+# 2, 4, 19 selected to represent low, medium, and high incidence for I0=100
+# 5, 12, 17 selected to represent low, medium, and high incidence for I0=10
+
+tstamp <- "20220105"
+dat <- readRDS(paste0("outputs/Rt_dataset_I0=100_", tstamp, ".rds"))
+stochid_I0_100 <- c(2, 4, 19)
+stochid_I0_10 <- c(5, 12, 17)
+probid <- c(2, 4, 6) # probability for 0.3, 0.5, 0.7
+
+plot(dat$ode$time, dat$ode$daily_confirmed, type = "l", ylim = c(0, 1000))
+
+for (i in stochid_I0_100) {
+  # for (j in probid) {
+  for (j in c(4)) {
+    cat("i = ", i, "j = ", j, "\n")
+    lines(0:200, dat$stoch_partial_obs$daily_detected[[j]][,i])
+    readline(prompt="Press [enter] to continue")
+  }
+}
+
+library(ggplot2)
+library(tidyverse)
+oderes <- dat$ode[, c("time", "daily_infected", "daily_confirmed")]
+oderes %>% pivot_longer(cols = -time) -> oderes
+
+stochres <- dat$stoch_perfect_obs$daily_confirmed[, 1:20]
+stochres$time <- dat$time
+
+stochres %>% pivot_longer(cols = -time) -> stochres
+
+plt <- ggplot() +
+  geom_line(data = stochres, aes(time, value, group=name), color="grey50") +
+  geom_line(data = oderes, aes(time, value, color=name), size=1.2) + 
+  labs(x="time", y="", color="")
+
+plt   
+# ggsave("plots/daily_case.png", plt)
+
+plot(dat$ode$time, dat$ode$daily_confirmed, type = "l", ylim = c(0, 1000))
+stochid_I0_100 <- c(2, 4, 19)
+stochid_I0_10 <- c(5, 12, 17)
+for (i in stochid_I0_100) {
+  cat("i = ", i, "\n")
+  lines(0:200, dat$stoch_perfect_obs$daily_confirmed[,i])
+  # text(1:200, dat$stoch_perfect_obs$daily_infected[,1], label = i)
+  readline(prompt="Press [enter] to continue")
+}
+
+```
